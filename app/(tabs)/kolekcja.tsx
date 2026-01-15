@@ -1,18 +1,10 @@
-import React, { useCallback, useState } from "react";
-import { View, Text, StyleSheet, Image } from "react-native";
+import React, { useCallback, useMemo, useState } from "react";
+import { View, StyleSheet, Image, FlatList } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
+import { BALLOONS, type Balloon } from "../../constants/balloons";
 
 const STORAGE_KEY = "COLLECTED_BALLOONS_V1";
-
-const ALL = [
-  { id: "deer", img: require("../../assets/baloniki_zwierzeta/zwierzeta/z28.png") },
-  { id: "hippo", img: require("../../assets/baloniki_zwierzeta/zwierzeta/z19.png") },
-  { id: "lollipop", img: require("../../assets/baloniki_zwierzeta/slodycze/s2.png") },
-  { id: "donut", img: require("../../assets/baloniki_zwierzeta/slodycze/s4.png") },
-  { id: "cherries", img: require("../../assets/baloniki_zwierzeta/owoce/o2.png") },
-  { id: "strawberry", img: require("../../assets/baloniki_zwierzeta/owoce/o4.png") },
-] as const;
 
 async function getCollected(): Promise<string[]> {
   const raw = await AsyncStorage.getItem(STORAGE_KEY);
@@ -34,35 +26,35 @@ export default function Kolekcja() {
     }, [])
   );
 
-  const collected = ALL.filter((x) => ids.includes(x.id));
-  const missing = ALL.filter((x) => !ids.includes(x.id));
+  const set = useMemo(() => new Set(ids), [ids]);
+
+  const renderItem = ({ item }: { item: Balloon }) => {
+    const owned = set.has(item.id);
+    return (
+      <View style={[styles.tile, !owned ? styles.missing : null]}>
+        <Image source={item.img} style={[styles.img, !owned ? { opacity: 0.25 } : null]} resizeMode="contain" />
+      </View>
+    );
+  };
 
   return (
     <View style={styles.safe}>
-      <Text style={styles.h}>🎈</Text>
-
-      <View style={styles.row}>
-        {collected.map((it) => (
-          <View key={it.id} style={styles.tile}>
-            <Image source={it.img} style={styles.img} resizeMode="contain" />
-          </View>
-        ))}
-
-        {missing.map((it) => (
-          <View key={it.id} style={[styles.tile, styles.missing]}>
-            <Image source={it.img} style={[styles.img, { opacity: 0.25 }]} resizeMode="contain" />
-          </View>
-        ))}
-      </View>
+      <FlatList
+        data={BALLOONS}
+        keyExtractor={(it) => it.id}
+        numColumns={2}
+        renderItem={renderItem}
+        columnWrapperStyle={{ justifyContent: "space-between" }}
+        contentContainerStyle={{ paddingBottom: 16, gap: 12 }}
+        ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+        showsVerticalScrollIndicator={false}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#F6FBFF", padding: 12 },
-  h: { fontSize: 26, fontWeight: "900", marginBottom: 10 },
-
-  row: { flexDirection: "row", flexWrap: "wrap", gap: 12, justifyContent: "space-between" },
 
   tile: {
     width: "48%",
@@ -75,6 +67,5 @@ const styles = StyleSheet.create({
     borderColor: "#E3F1FF",
   },
   missing: { backgroundColor: "#ECF6FF" },
-
   img: { width: 130, height: 130 },
 });

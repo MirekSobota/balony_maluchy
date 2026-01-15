@@ -1,35 +1,20 @@
-import React, { useEffect, useState } from "react";
-import { SafeAreaView, View, StyleSheet, Pressable, Image, Text } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import { SafeAreaView, View, StyleSheet, Pressable, Image, Text, Animated, Easing } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Audio } from "expo-av";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { BALLOONS, type Balloon } from "../../constants/balloons";
 
 const STORAGE_KEY = "COLLECTED_BALLOONS_V1";
+const GRID_SIZE = 6;
 
-const ASSETS = [
-  { id: "deer", img: require("../../assets/baloniki_zwierzeta/zwierzeta/z28.png") },
-  { id: "hippo", img: require("../../assets/baloniki_zwierzeta/zwierzeta/z19.png") },
-  { id: "lollipop", img: require("../../assets/baloniki_zwierzeta/slodycze/s2.png") },
-  { id: "donut", img: require("../../assets/baloniki_zwierzeta/slodycze/s4.png") },
-  { id: "cherries", img: require("../../assets/baloniki_zwierzeta/owoce/o2.png") },
-  { id: "strawberry", img: require("../../assets/baloniki_zwierzeta/owoce/o4.png") },
-] as const;
-
-type Item = (typeof ASSETS)[number];
-
-function shuffle<T>(arr: T[]) {
+function shuffle<T>(arr: readonly T[]): T[] {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
-}
-
-function pickRound() {
-  const grid = shuffle([...ASSETS]);
-  const target = grid[Math.floor(Math.random() * grid.length)];
-  return { grid, target };
 }
 
 async function getCollected(): Promise<string[]> {
@@ -51,15 +36,74 @@ async function addCollected(id: string) {
   return next.length;
 }
 
+function Tile({
+  item,
+  isHint,
+  disabled,
+  onPress,
+}: {
+  item: Balloon;
+  isHint: boolean;
+  disabled: boolean;
+  onPress: () => void;
+}) {
+  const shake = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (!isHint) {
+      shake.stopAnimation();
+      shake.setValue(0);
+      return;
+    }
+
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(shake, { toValue: -3, duration: 70, easing: Easing.linear, useNativeDriver: false }),
+        Animated.timing(shake, { toValue: 3, duration: 70, easing: Easing.linear, useNativeDriver: false }),
+        Animated.timing(shake, { toValue: -2, duration: 70, easing: Easing.linear, useNativeDriver: false }),
+        Animated.timing(shake, { toValue: 2, duration: 70, easing: Easing.linear, useNativeDriver: false }),
+        Animated.timing(shake, { toValue: 0, duration: 90, easing: Easing.linear, useNativeDriver: false }),
+        Animated.delay(350),
+      ])
+    );
+
+    anim.start();
+    return () => anim.stop();
+  }, [isHint, shake]);
+
+  return (
+    <Pressable disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.tile, pressed && !disabled ? styles.tilePressed : null]}>
+      <Animated.View style={{ transform: [{ translateX: shake }] }}>
+        <Image source={item.img} style={styles.asset} resizeMode="contain" />
+      </Animated.View>
+    </Pressable>
+  );
+}
+
 export default function Index() {
   const insets = useSafeAreaInsets();
-  const [{ grid, target }, setRound] = useState(() => pickRound());
-  const [hintOn, setHintOn] = useState(false);
+
+  const bagRef = useRef<Balloon[]>(shuffle(BALLOONS));
+  const bagIndexRef = useRef(0);
+
+  const [target, setTarget] = useState<Balloon>(() => bagRef.current[0]);
+  const [grid, setGrid] = useState<Balloon[]>([]);
+  const [hintId, setHintId] = useState<string | null>(null);
   const [lock, setLock] = useState(false);
   const [collectedCount, setCollectedCount] = useState(0);
 
   const [soundCorrect, setSoundCorrect] = useState<Audio.Sound | null>(null);
   const [soundWrong, setSoundWrong] = useState<Audio.Sound | null>(null);
+
+  const totalCount = BALLOONS.length;
+
+  const buildGrid = (t: Balloon) => {
+    const others = BALLOONS.filter((x) => x.id !== t.id);
+    const pick = shuffle(others).slice(0, Math.max(0, GRID_SIZE - 1));
+    setGrid(shuffle([t, ...pick]));
+  };
+
+  useEffect(() => buildGrid(target), [target]);
 
   useEffect(() => {
     getCollected().then((c) => setCollectedCount(c.length));
@@ -74,7 +118,6 @@ export default function Index() {
       setSoundCorrect(ok.sound);
       setSoundWrong(no.sound);
     })();
-
     return () => {
       mounted = false;
       soundCorrect?.unloadAsync();
@@ -84,12 +127,10 @@ export default function Index() {
   }, []);
 
   useEffect(() => {
-    setHintOn(false);
-    const t = setTimeout(() => setHintOn(true), 2500);
+    setHintId(null);
+    const t = setTimeout(() => setHintId(target.id), 2500);
     return () => clearTimeout(t);
   }, [target.id]);
-
-  const next = () => setRound(pickRound());
 
   const play = async (s: Audio.Sound | null) => {
     if (!s) return;
@@ -98,22 +139,31 @@ export default function Index() {
     } catch {}
   };
 
-  const onPick = async (item: Item) => {
+  const nextTarget = () => {
+    let idx = bagIndexRef.current + 1;
+    if (idx >= bagRef.current.length) {
+      bagRef.current = shuffle(BALLOONS);
+      idx = 0;
+    }
+    bagIndexRef.current = idx;
+    setTarget(bagRef.current[idx]);
+  };
+
+  const onPick = async (item: Balloon) => {
     if (lock) return;
 
     if (item.id === target.id) {
       setLock(true);
-      setHintOn(false);
+      setHintId(null);
 
       await play(soundCorrect);
-
       const newCount = await addCollected(item.id);
       setCollectedCount(newCount);
 
       setTimeout(() => {
         setLock(false);
-        next();
-      }, 550);
+        nextTarget();
+      }, 450);
     } else {
       await play(soundWrong);
     }
@@ -121,35 +171,20 @@ export default function Index() {
 
   return (
     <SafeAreaView style={[styles.safe, { paddingTop: insets.top + 8 }]}>
-      {/* HEADER: DUŻY CEL + postęp */}
       <View style={styles.headerCard}>
         <View style={styles.headerRow}>
           <View style={styles.targetBig}>
             <Image source={target.img} style={styles.targetBigImg} resizeMode="contain" />
           </View>
-
-          <Text style={styles.progress}>🎈 {collectedCount}/{ASSETS.length}</Text>
+          <Text style={styles.progress}>🎈 {collectedCount}/{totalCount}</Text>
         </View>
       </View>
 
       <View style={styles.grid}>
         {grid.map((it) => (
-          <Pressable
-            key={it.id}
-            disabled={lock}
-            onPress={() => onPick(it)}
-            style={({ pressed }) => [
-              styles.tile,
-              pressed && !lock ? styles.tilePressed : null,
-              hintOn && it.id === target.id ? styles.tileHint : null,
-            ]}
-          >
-            <Image source={it.img} style={styles.asset} resizeMode="contain" />
-          </Pressable>
+          <Tile key={it.id} item={it} isHint={hintId === it.id} disabled={lock} onPress={() => onPick(it)} />
         ))}
       </View>
-
-      <Text style={styles.footer}> </Text>
     </SafeAreaView>
   );
 }
@@ -169,7 +204,6 @@ const styles = StyleSheet.create({
   },
   headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
 
-  // DUŻY CEL
   targetBig: {
     width: 92,
     height: 92,
@@ -181,7 +215,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   targetBigImg: { width: 72, height: 72 },
-
   progress: { fontSize: 20, fontWeight: "900" },
 
   grid: {
@@ -204,8 +237,5 @@ const styles = StyleSheet.create({
     borderColor: "#E3F1FF",
   },
   tilePressed: { transform: [{ scale: 0.98 }], opacity: 0.95 },
-  tileHint: { borderWidth: 3, borderColor: "#9BE7FF" },
-
   asset: { width: 130, height: 130 },
-  footer: { textAlign: "center", paddingBottom: 8, opacity: 0.5 },
 });

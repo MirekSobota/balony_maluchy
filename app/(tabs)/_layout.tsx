@@ -7,24 +7,9 @@ function Icon({ emoji }: { emoji: string }) {
 
 export default function TabLayout() {
   return (
-    <Tabs
-      screenOptions={{
-        headerShown: false,
-        tabBarShowLabel: false,
-      }}
-    >
-      <Tabs.Screen
-        name="index"
-        options={{
-          tabBarIcon: () => <Icon emoji="🎯" />,
-        }}
-      />
-      <Tabs.Screen
-        name="kolekcja"
-        options={{
-          tabBarIcon: () => <Icon emoji="🎈" />,
-        }}
-      />
+    <Tabs screenOptions={{ headerShown: false, tabBarShowLabel: false }}>
+      <Tabs.Screen name="index" options={{ tabBarIcon: () => <Icon emoji="🎯" /> }} />
+      <Tabs.Screen name="kolekcja" options={{ tabBarIcon: () => <Icon emoji="🎈" /> }} />
     </Tabs>
   );
 }
