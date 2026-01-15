@@ -1,98 +1,211 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import React, { useEffect, useState } from "react";
+import { SafeAreaView, View, StyleSheet, Pressable, Image, Text } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Audio } from "expo-av";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+const STORAGE_KEY = "COLLECTED_BALLOONS_V1";
 
-export default function HomeScreen() {
+const ASSETS = [
+  { id: "deer", img: require("../../assets/baloniki_zwierzeta/zwierzeta/z28.png") },
+  { id: "hippo", img: require("../../assets/baloniki_zwierzeta/zwierzeta/z19.png") },
+  { id: "lollipop", img: require("../../assets/baloniki_zwierzeta/slodycze/s2.png") },
+  { id: "donut", img: require("../../assets/baloniki_zwierzeta/slodycze/s4.png") },
+  { id: "cherries", img: require("../../assets/baloniki_zwierzeta/owoce/o2.png") },
+  { id: "strawberry", img: require("../../assets/baloniki_zwierzeta/owoce/o4.png") },
+] as const;
+
+type Item = (typeof ASSETS)[number];
+
+function shuffle<T>(arr: T[]) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function pickRound() {
+  const grid = shuffle([...ASSETS]);
+  const target = grid[Math.floor(Math.random() * grid.length)];
+  return { grid, target };
+}
+
+async function getCollected(): Promise<string[]> {
+  const raw = await AsyncStorage.getItem(STORAGE_KEY);
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+async function addCollected(id: string) {
+  const current = await getCollected();
+  if (current.includes(id)) return current.length;
+  const next = [...current, id];
+  await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  return next.length;
+}
+
+export default function Index() {
+  const insets = useSafeAreaInsets();
+  const [{ grid, target }, setRound] = useState(() => pickRound());
+  const [hintOn, setHintOn] = useState(false);
+  const [lock, setLock] = useState(false);
+  const [collectedCount, setCollectedCount] = useState(0);
+
+  const [soundCorrect, setSoundCorrect] = useState<Audio.Sound | null>(null);
+  const [soundWrong, setSoundWrong] = useState<Audio.Sound | null>(null);
+
+  useEffect(() => {
+    getCollected().then((c) => setCollectedCount(c.length));
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const ok = await Audio.Sound.createAsync(require("../../assets/sounds/correct.mp3"), { volume: 1 });
+      const no = await Audio.Sound.createAsync(require("../../assets/sounds/wrong.mp3"), { volume: 1 });
+      if (!mounted) return;
+      setSoundCorrect(ok.sound);
+      setSoundWrong(no.sound);
+    })();
+
+    return () => {
+      mounted = false;
+      soundCorrect?.unloadAsync();
+      soundWrong?.unloadAsync();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    setHintOn(false);
+    const t = setTimeout(() => setHintOn(true), 2500);
+    return () => clearTimeout(t);
+  }, [target.id]);
+
+  const next = () => setRound(pickRound());
+
+  const play = async (s: Audio.Sound | null) => {
+    if (!s) return;
+    try {
+      await s.replayAsync();
+    } catch {}
+  };
+
+  const onPick = async (item: Item) => {
+    if (lock) return;
+
+    if (item.id === target.id) {
+      setLock(true);
+      setHintOn(false);
+
+      await play(soundCorrect);
+
+      const newCount = await addCollected(item.id);
+      setCollectedCount(newCount);
+
+      setTimeout(() => {
+        setLock(false);
+        next();
+      }, 550);
+    } else {
+      await play(soundWrong);
+    }
+  };
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+    <SafeAreaView style={[styles.safe, { paddingTop: insets.top + 8 }]}>
+      {/* HEADER: DUŻY CEL + postęp */}
+      <View style={styles.headerCard}>
+        <View style={styles.headerRow}>
+          <View style={styles.targetBig}>
+            <Image source={target.img} style={styles.targetBigImg} resizeMode="contain" />
+          </View>
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+          <Text style={styles.progress}>🎈 {collectedCount}/{ASSETS.length}</Text>
+        </View>
+      </View>
+
+      <View style={styles.grid}>
+        {grid.map((it) => (
+          <Pressable
+            key={it.id}
+            disabled={lock}
+            onPress={() => onPick(it)}
+            style={({ pressed }) => [
+              styles.tile,
+              pressed && !lock ? styles.tilePressed : null,
+              hintOn && it.id === target.id ? styles.tileHint : null,
+            ]}
+          >
+            <Image source={it.img} style={styles.asset} resizeMode="contain" />
+          </Pressable>
+        ))}
+      </View>
+
+      <Text style={styles.footer}> </Text>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  safe: { flex: 1, backgroundColor: "#F6FBFF", paddingHorizontal: 12 },
+
+  headerCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#E3F1FF",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginTop: 6,
+    marginBottom: 10,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+
+  // DUŻY CEL
+  targetBig: {
+    width: 92,
+    height: 92,
+    borderRadius: 22,
+    backgroundColor: "#F3F9FF",
+    borderWidth: 3,
+    borderColor: "#9BE7FF",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  targetBigImg: { width: 72, height: 72 },
+
+  progress: { fontSize: 20, fontWeight: "900" },
+
+  grid: {
+    flex: 1,
+    paddingTop: 6,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    gap: 12,
   },
+
+  tile: {
+    width: "48%",
+    height: 170,
+    backgroundColor: "#ECF6FF",
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#E3F1FF",
+  },
+  tilePressed: { transform: [{ scale: 0.98 }], opacity: 0.95 },
+  tileHint: { borderWidth: 3, borderColor: "#9BE7FF" },
+
+  asset: { width: 130, height: 130 },
+  footer: { textAlign: "center", paddingBottom: 8, opacity: 0.5 },
 });
