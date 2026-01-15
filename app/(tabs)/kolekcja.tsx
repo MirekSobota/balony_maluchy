@@ -117,9 +117,9 @@ export default function Kolekcja() {
       <View style={styles.topBar}>
         <Text style={styles.counter}>🎈 {ownedCount}/{totalCount}</Text>
 
-        <Pressable onLongPress={onDevReset} delayLongPress={600} style={({ pressed }) => [styles.devBtn, pressed ? { opacity: 0.8 } : null]}>
+        {/* <Pressable onLongPress={onDevReset} delayLongPress={600} style={({ pressed }) => [styles.devBtn, pressed ? { opacity: 0.8 } : null]}>
           <Text style={styles.devBtnText}>RESET</Text>
-        </Pressable>
+        </Pressable> */}
       </View>
 
       <FlatList
